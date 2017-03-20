@@ -7,6 +7,13 @@
         <script>
             // create our game objects
             var game = new Phaser.Game( window.innerWidth, window.innerHeight, Phaser.AUTO, 'game' );
+            
+            // update the game size if needed
+            window.addEventListener('resize', function(){
+                if( window.innerWidth >= 600 && window.innerHeight >= 400 ) {
+                    game.scale.setGameSize( window.innerWidth, window.innerHeight );
+                }
+            }, true);
 
             // create our states
             var states = {};
