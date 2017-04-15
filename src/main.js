@@ -1,10 +1,10 @@
 states.main = {
     // keep track of variables
     player : null,
-    playerHealthBar :null,
     blocks : null,
     bullets : null,
-    enemies :null,
+    enemies : null,
+    collectibles : null,
     left : null,
     right : null,
     up : null,
@@ -13,7 +13,7 @@ states.main = {
     nextFire : 0,
     
     // load our assets
-    preload : function() {
+    preload() {
         game.load.crossOrigin = true;
         game.load.image( 'block', 'assets/floor.png' );
         game.load.image( 'player', 'assets/character.png' );
@@ -24,7 +24,7 @@ states.main = {
     },
 
     // run at the very beginning to add all entities
-    create : function() {
+    create() {
         // set the world bounds
         game.world.setBounds( 0, 0, game.width, game.height );
         
@@ -37,6 +37,9 @@ states.main = {
         // keep track of enemies
         this.enemies = game.add.group();
         
+        // keep track of collectibles
+        this.collectibles = game.add.group();
+        
         // build the level
         this.buildLevel();
         
@@ -46,12 +49,7 @@ states.main = {
         
         // create the player
         this.player = this.createPlayer( 64, game.world.height - 64 );
-        this.player.maxHealth = 5;
-        this.player.health = this.player.maxHealth;
         this.facing = 'right';
-        
-        // create the player's health bar
-        this.playerHealthBar = this.createHealthBar( this.player.x, this.player.y );
         
         // create enemy
         this.createEnemy( 500, game.world.height - 64 );
@@ -67,7 +65,7 @@ states.main = {
         game.camera.follow( this.player, Phaser.Camera.FOLLOW_PLATFORMER, 0.1, 0.1 );
     },
 
-    update : function() {
+    update() {
         // handle shooting
         if( this.shoot.isDown ) {
             this.pewpew();
@@ -88,24 +86,38 @@ states.main = {
         // check for enemy collisions with the world
         game.physics.arcade.collide( this.enemies, this.blocks );
         
-        // check for enemy collisions with the play
+        // check for enemy collisions with the player
         game.physics.arcade.overlap( this.player, this.enemies, this.playerHitEnemy, function(){}, this ); 
-                
+        
+        // check for player collisions with collectibles
+        game.physics.arcade.overlap( this.player, this.collectibles, this.playerHitCollectible ); 
+        
         // handle user input
         this.handlePlayerMovement();
         
         // position player's health bar
-        this.playerHealthBar.x = this.player.x;
-        this.playerHealthBar.y = this.player.y - 17;
+        this.player.healthbar.position.setTo( this.player.x, this.player.y - 17 );
+        Health.checkHide( this.player.healthbar );
         
         // handle enemy movement
-        this.handleEnemyMovement();
+        this.updateEnemies();
+        
+        // make collectibles move
+        this.collectibles.callAll( 'move' );
     },
     
-    handleEnemyMovement() {
+    updateEnemies() {
+        var check = Health.checkHide;
+        var player = this.player;
         this.enemies.forEach(function(enemy){
-            enemy.healthBar.x = enemy.x;
-            enemy.healthBar.y = enemy.y - 17;
+            // position the health bar
+            enemy.healthbar.position.setTo( enemy.x, enemy.y - 17 );
+            
+            // check if we need to hide the healthbar
+            check( enemy.healthbar );
+          
+            // move the enemy
+            enemy.move( player );
         });
     },
     
@@ -127,17 +139,27 @@ states.main = {
         // get rid of the bullet
         bullet.kill();
         
-        // knockdown a block if needed
-        enemy.health--;
+        // show the health bar if it's not already there
+        enemy.healthbar.alpha = 1;
+
+        // set the next hide time
+        enemy.healthbar.nextHide = game.time.time + enemy.healthbar.hideRate;
+                
+        // decrease the enemy's health
+        if( enemy.health !== 0 ) {
+            enemy.health--;
+        }
         
         // shrink the enemy's health bar
-        enemy.healthBar.scale.setTo( ( 2 / enemy.maxHealth ) * enemy.health, 0.5 );
+        enemy.healthbar.scale.setTo( ( 2 / enemy.maxHealth ) * enemy.health, 0.5 );
         
+        // get rid of the enemy if needed
         if( enemy.health === 0 ) {
             enemy.kill();
         }
     },
     
+    // set what happens
     blockHitBlock( block1, block2 ) {
         // stop the blocks from falling
         block1.body.allowGravity = false;
@@ -148,41 +170,60 @@ states.main = {
         block2.body.immovable = true;
     },
 
-    // fade the player in an out
+    // fade the player in and out
     flashPlayer()
     {
-        if( this.player.alpha === 1.0 )
-        {
-            this.player.alpha = 0.5;
-        }
-        else
-        {
-            this.player.alpha = 1.0;    
-        }
+        this.player.alpha = this.player.alpha == 1.0 ? 0.5 : 1.0;
     },
     
+    // set what happens when the player hits an enemy
     playerHitEnemy( player, enemy )
-    {
+    {        
+        // pull the player away from the enemy  
+        var keepAway = 5;
+        if( player.body.velocity.y > 0 ) {
+            player.body.y -= keepAway;
+            player.body.velocity.y = -200;
+        }
+        if( player.body.right < enemy.body.right ) {
+            player.body.x -= keepAway;
+            player.body.velocity.x = -200;
+        }
+        else {
+            player.body.x += keepAway;
+            player.body.velocity.x = 200;
+        }
+      
+        // show the player's health bar if it's not already there
+        this.player.healthbar.alpha = 1;
+
+        // set the next hide time
+        this.player.healthbar.nextHide = game.time.time + this.player.healthbar.hideRate;
+
         // reduce the player's health
         if( player.health !== 0 ) {
             player.health--;
         }
         
         // shrink the player's health bar
-        this.playerHealthBar.scale.setTo( ( 2 / this.player.maxHealth ) * player.health, 0.5 );
+        this.player.healthbar.scale.setTo( ( 2 / this.player.maxHealth ) * player.health, 0.5 );
         
         // flash the player in and out of existence
         game.time.events.repeat( Phaser.Timer.SECOND / 6, 6, this.flashPlayer, this );
-        
-        // pull the player away from the enemy        
-        if( player.body.bottom == enemy.body.top ) {
-            player.body.velocity.y = -200;
-        }
-        if( player.body.right < enemy.body.right ) {
-            player.body.velocity.x = -200;
-        }
-        else {
-            player.body.velocity.x = 200;
+    },
+    
+    playerHitCollectible( player, collectible ) {  
+        // check if we hit a health collectible
+        if( collectible.key == 'health' ) {
+            // check if we need to collect the health
+            if( player.health < player.maxHealth ) {
+                // increase player's health and scale the health bar
+                player.health++;
+                player.healthbar.scale.setTo( ( 2 / player.maxHealth ) * player.health, 0.5 );
+                
+                // get rid of the collectible
+//                 collectible.kill();
+            }
         }
     },
     
@@ -228,13 +269,16 @@ states.main = {
             this.createBlock( col * 16 + 300, game.world.height - 120, 'block' );
             this.createBlock( col * 16 + 500, game.world.height - 180, 'block' );
         }
+        
+        // add all the collectibles
+        this.createHealthBlock( ( col - 1 ) * 16 + 500, game.world.height - 180 - 24 );
       
         // add a knockdown section
         block = this.createBlock( ( col - 1 ) * 16 + 500, game.world.height - 180 + 32, 'knockdown' );
         block.scale.setTo( 1, 3 );
     },
     
-    handlePlayerMovement : function() {
+    handlePlayerMovement() {
         // move left
         if( this.left.isDown ) {
             // stop moving if the player changes direction
@@ -291,7 +335,9 @@ states.main = {
         }
     },
     
-    createBullet : function( x, y ) {
+    // creates a bullet the given location and
+    // sends it in the direction of the cursor
+    createBullet( x, y ) {
         // create sprite
         var bullet = this.bullets.create( x, y, 'bullet' );
         bullet.scale.setTo( 5, 5 );
@@ -302,7 +348,7 @@ states.main = {
         bullet.body.collideWorldBounds = true;
         bullet.body.allowGravity = false;
         
-        // shoot in direction direction of mouse from player
+        // shoot in direction of mouse from player
         this.physics.arcade.velocityFromRotation(
             game.physics.arcade.angleToPointer( this.player ),
             1000,
@@ -312,7 +358,8 @@ states.main = {
         return bullet;
     },
     
-    createBlock : function( x, y, type ) {
+    // creates a block of the given type at the given location
+    createBlock( x, y, type ) {
         // create the sprite
         var block = this.blocks.create( x, y, type );
             
@@ -326,7 +373,8 @@ states.main = {
         return block;
     },
     
-    createPlayer : function( x, y ) {
+    // creates the player at the given location
+    createPlayer( x, y ) {
         // create the player
         var player = game.add.sprite( x, y, 'player' );
         player.anchor.setTo( 0.5, 0.5 );
@@ -336,10 +384,16 @@ states.main = {
         player.body.collideWorldBounds = true;
         player.body.maxVelocity.x = 600;
         
+        // give the enemy a health bar
+        player.maxHealth = 5;
+        player.health    = player.maxHealth;
+        player.healthbar = Health.create( player.x, player.y );
+        
         return player;
     },
     
-    createEnemy : function( x, y ) {
+    // creates an enemy at the given location
+    createEnemy( x, y ) {
         // create the enemy
         var enemy = this.enemies.create( x, y, 'bad-guy' );
         enemy.anchor.setTo( 0.5, 0.5 );
@@ -351,28 +405,79 @@ states.main = {
         // set attributes 
         enemy.health = 5;
         enemy.maxHealth = 5;
+        enemy.body.maxVelocity.x = 200;
         
         // give the enemy a health bar
-        enemy.healthBar = this.createHealthBar( enemy.x, enemy.y )
+        enemy.healthbar = Health.create( enemy.x, enemy.y );
+      
+        // set how this moves
+        enemy.move = function( player ) {
+            if( this.body.x > player.body.x ) {
+                this.body.x -= 1;
+            }
+            else if( this.body.x < player.body.x ) {
+                this.body.x += 1;
+            }
+        };
         
         return enemy;
     },
-    
-    createHealthBar : function( x, y ) {
-        // create the healthbar
-        var healthbar = game.add.sprite( x, y, 'health' );
-        healthbar.anchor.setTo( 0.5, 0.5 );
         
-        healthbar.scale.setTo( 2, 0.5 );
+    // creates a health block at the given location
+    createHealthBlock( x, y ) {
+        var healthBlock = this.collectibles.create( x, y, 'health' );
+        healthBlock.anchor.setTo( 0.5, 0.5 );
+        healthBlock.scale.setTo( 0.5, 0.5 );
         
-        return healthbar;
+        game.physics.arcade.enable( healthBlock );
+        healthBlock.body.allowGravity = false;
+        
+        // set attributes
+        healthBlock.originalY = y;
+        healthBlock.variation = 5;
+        healthBlock.direction = 'up';
+        healthBlock.moveRate = 35;
+        healthBlock.nextMove = 0;
+      
+        // add move function
+        healthBlock.move = function(){
+            this.rotation += Phaser.Math.degToRad( 1.0 ) ;
+            
+            // slow down rate of fire
+            if( game.time.time < this.nextMove ) {
+                return;
+            }
+            
+            if( this.direction == 'up' ) {
+                if( this.body.y > this.originalY - this.variation ) {
+                    this.body.y--;
+                }
+                else {
+                    this.direction = 'down';
+                }
+            }
+            else {
+                if( this.body.y < this.originalY + this.variation ) {
+                    this.body.y++;
+                }
+                else {
+                    this.direction = 'up';
+                }
+            }
+            
+            // set when the we can move again
+            this.nextMove = game.time.time + this.moveRate;
+        };
+        
+        return healthBlock;
     },
     
-    render : function() {        
-        game.debug.cameraInfo(game.camera, 32, 32);
+    render() {        
+//        game.debug.bodyInfo(this.player, 32, 32); 
     },
     
-    jump : function() {
+    // makes the player jump
+    jump() {
         this.player.body.velocity.y = -400;
     },
 };
